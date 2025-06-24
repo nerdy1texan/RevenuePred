@@ -38,6 +38,9 @@ graph LR
 ├── /streamlit_dashboard/ # Interactive visualization
 ├── /adf_pipelines/       # Azure Data Factory pipelines
 ├── /infra/              # Infrastructure as Code
+│   ├── /bicep/          # Bicep IaC templates
+│   ├── /scripts/        # Deployment scripts
+│   └── /docs/           # Additional documentation
 ├── requirements.txt     # Python dependencies
 ├── README.md           # This file
 └── .gitignore         # Git ignore patterns
@@ -56,7 +59,7 @@ cd enterprise-revenue-prediction-pipeline
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
 .\venv\Scripts\activate   # Windows
-source /c/Users/mauli/anaconda3/Scripts/activate #GitBash Initiatlize Conda 
+source /c/Users/mauli/anaconda3/Scripts/activate #GitBash Initialize Conda 
 conda activate revenuepred
 ```
 
@@ -65,12 +68,38 @@ conda activate revenuepred
 pip install -r requirements.txt
 ```
 
-4. Set up Azure credentials:
+4. Set up Azure Infrastructure:
+
+a. Install Prerequisites:
 ```bash
+# Install Azure CLI
+curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+# Login to Azure
 az login
+
+# Install Bicep tools
+az bicep install
 ```
 
-5. Create `.env` file with required credentials:
+b. Deploy Infrastructure:
+```bash
+cd infra/scripts
+./deploy-infrastructure.sh
+```
+
+c. Set up RBAC:
+```bash
+./setup-rbac.sh
+```
+
+d. Verify Deployment:
+```bash
+./verify-deployment.sh
+```
+
+5. Configure Environment:
+The `setup-rbac.sh` script will create a `.env` file with all required credentials:
 ```
 AZURE_STORAGE_CONNECTION_STRING=your_connection_string
 AZURE_TENANT_ID=your_tenant_id
@@ -123,7 +152,37 @@ APPINSIGHTS_CONNECTION_STRING=your_connection_string
 }
 ```
 
-## 💰 Cost Optimization
+## 🛠️ Infrastructure Components
+
+1. **Infrastructure as Code (Bicep templates)**:
+   - `main.bicep`: Orchestrates all resource deployments
+   - `storage.bicep`: Data Lake Storage Gen2 with lifecycle management
+   - `aml.bicep`: Azure ML workspace with compute cluster
+   - `adf.bicep`: Data Factory with managed vnet
+   - `swa.bicep`: Static Web Apps for dashboard
+   - `monitoring.bicep`: Application Insights with alerts
+
+2. **Deployment Scripts**:
+   - `deploy-infrastructure.sh`: Main deployment script
+   - `setup-rbac.sh`: RBAC and service principal setup
+   - `verify-deployment.sh`: Deployment verification
+
+3. **Cost Optimization**:
+   - Storage: Uses lifecycle management to move old data to cool tier
+   - AML: Auto-shutdown for compute instances
+   - ADF: Uses managed vnet for cost-effective integration
+   - App Insights: Daily cap of 1GB
+   - Budget alerts at 80% threshold
+   - Estimated monthly cost: $18-30
+
+4. **Security Features**:
+   - RBAC with least privilege access
+   - Service Principal for automation
+   - Managed identities for services
+   - Secure storage access
+   - Application Insights for monitoring
+
+## 💰 Cost Management
 
 - Uses Azure free tiers where possible
 - Automated resource scaling
@@ -158,6 +217,3 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 4. Push to the branch
 5. Create a Pull Request
 
-## 📞 Support
-
-For support, please contact the development team or create an issue in the repository. # RevenuePred
