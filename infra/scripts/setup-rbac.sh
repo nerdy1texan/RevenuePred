@@ -30,10 +30,14 @@ echo "Environment: $ENVIRONMENT"
 echo "Project Name: $PROJECT_NAME"
 echo "Resource Group: $RG_NAME"
 
+# Set subscription explicitly
+SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+echo "Using subscription: $SUBSCRIPTION_ID"
+
 # Create Service Principal for the project
 echo "Creating Service Principal..."
 SP_NAME="sp-${PROJECT_NAME}-${ENVIRONMENT}"
-SP_OUTPUT=$(az ad sp create-for-rbac --name $SP_NAME --role contributor --scopes /subscriptions/$(az account show --query id -o tsv)/resourceGroups/$RG_NAME)
+SP_OUTPUT=$(az ad sp create-for-rbac --name $SP_NAME --role contributor --scopes /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME)
 
 # Extract values from SP creation
 SP_ID=$(echo $SP_OUTPUT | jq -r .appId)
