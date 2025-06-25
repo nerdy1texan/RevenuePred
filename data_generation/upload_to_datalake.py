@@ -266,13 +266,9 @@ def upload_synthetic_data(csv_file_path: str, summary_file_path: Optional[str] =
     # Initialize uploader
     uploader = DataLakeUploader()
     
-    # Read data to get date range for folder structure
-    try:
-        df = pd.read_csv(csv_file_path, parse_dates=['Date'], nrows=1)
-        upload_date = df['Date'].iloc[0]
-    except Exception as e:
-        logger.warning(f"Could not read date from CSV, using current date: {str(e)}")
-        upload_date = datetime.now()
+    # Use current date for folder structure (not CSV data date)
+    upload_date = datetime.now()
+    logger.info(f"Using current date for folder structure: {upload_date.strftime('%Y-%m-%d')}")
     
     # Create folder structure
     target_folder = uploader.create_folder_structure(upload_date)
