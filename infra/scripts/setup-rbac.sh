@@ -6,21 +6,24 @@ set -e
 # Default values
 ENVIRONMENT="prod"
 PROJECT_NAME="abcrenewables"
+LOCATION="eastus2"
 RG_NAME="rg-${PROJECT_NAME}-${ENVIRONMENT}"
 
 # Print usage
 usage() {
-    echo "Usage: $0 [-e environment] [-p project_name]"
+    echo "Usage: $0 [-e environment] [-p project_name] [-l location]"
     echo "  -e: Environment (default: prod)"
     echo "  -p: Project name (default: abcrenewables)"
+    echo "  -l: Location (default: eastus2)"
     exit 1
 }
 
 # Parse command line arguments
-while getopts "e:p:" opt; do
+while getopts "e:p:l:" opt; do
     case $opt in
         e) ENVIRONMENT="$OPTARG" ;;
         p) PROJECT_NAME="$OPTARG" ;;
+        l) LOCATION="$OPTARG" ;;
         *) usage ;;
     esac
 done
@@ -28,63 +31,69 @@ done
 echo "Setting up RBAC with the following parameters:"
 echo "Environment: $ENVIRONMENT"
 echo "Project Name: $PROJECT_NAME"
+echo "Location: $LOCATION"
 echo "Resource Group: $RG_NAME"
 
 # Set subscription explicitly
 SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 echo "Using subscription: $SUBSCRIPTION_ID"
 
-# Create Service Principal for the project
+# Create resource group first if it doesn't exist
+echo "Creating resource group if it doesn't exist..."
+az group create --name $RG_NAME --location $LOCATION
+
+# Create Service Principal for the project with subscription scope initially
 echo "Creating Service Principal..."
 SP_NAME="sp-${PROJECT_NAME}-${ENVIRONMENT}"
-SP_OUTPUT=$(az ad sp create-for-rbac --name $SP_NAME --role contributor --scopes /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME)
 
-# Extract values from SP creation
-SP_ID=$(echo $SP_OUTPUT | jq -r .appId)
-SP_SECRET=$(echo $SP_OUTPUT | jq -r .password)
-TENANT_ID=$(echo $SP_OUTPUT | jq -r .tenant)
+# Check if service principal already exists
+SP_EXISTS=$(az ad sp list --display-name $SP_NAME --query "length(@)")
+if [ "$SP_EXISTS" -gt 0 ]; then
+    echo "Service Principal $SP_NAME already exists. Retrieving details..."
+    SP_ID=$(az ad sp list --display-name $SP_NAME --query "[0].appId" -o tsv)
+    TENANT_ID=$(az account show --query tenantId -o tsv)
+    echo "Note: You'll need to use the existing client secret or create a new one manually."
+    echo "Service Principal App ID: $SP_ID"
+else
+    # Create new service principal with subscription scope
+    SP_OUTPUT=$(az ad sp create-for-rbac --name $SP_NAME --role contributor --scopes "/subscriptions/$SUBSCRIPTION_ID")
+    
+    # Extract values from SP creation
+    SP_ID=$(echo $SP_OUTPUT | jq -r .appId)
+    SP_SECRET=$(echo $SP_OUTPUT | jq -r .password)
+    TENANT_ID=$(echo $SP_OUTPUT | jq -r .tenant)
+    
+    echo "Service Principal created successfully!"
+    echo "App ID: $SP_ID"
+fi
 
-# Get resource IDs
-STORAGE_ACCOUNT=$(az storage account list -g $RG_NAME --query "[?contains(name, '${PROJECT_NAME}')].id" -o tsv)
-AML_WORKSPACE=$(az ml workspace list -g $RG_NAME --query "[?contains(name, '${PROJECT_NAME}')].id" -o tsv)
-DATA_FACTORY=$(az datafactory list -g $RG_NAME --query "[?contains(name, '${PROJECT_NAME}')].id" -o tsv)
-
-# Assign roles to Service Principal
-echo "Assigning roles to Service Principal..."
-
-# Storage Account roles
-az role assignment create \
-    --assignee $SP_ID \
-    --role "Storage Blob Data Contributor" \
-    --scope $STORAGE_ACCOUNT
-
-# AML Workspace roles
-az role assignment create \
-    --assignee $SP_ID \
-    --role "AzureML Data Scientist" \
-    --scope $AML_WORKSPACE
-
-# Data Factory roles
-az role assignment create \
-    --assignee $SP_ID \
-    --role "Data Factory Contributor" \
-    --scope $DATA_FACTORY
+# Wait a moment for Azure AD to propagate
+echo "Waiting for Azure AD propagation..."
+sleep 10
 
 # Create .env file with credentials
 echo "Creating .env file..."
-cat > ../../.env << EOF
+ENV_FILE="../../.env"
+cat > $ENV_FILE << EOF
 # Azure Service Principal Credentials
 AZURE_TENANT_ID=$TENANT_ID
 AZURE_CLIENT_ID=$SP_ID
-AZURE_CLIENT_SECRET=$SP_SECRET
+$(if [ ! -z "$SP_SECRET" ]; then echo "AZURE_CLIENT_SECRET=$SP_SECRET"; else echo "# AZURE_CLIENT_SECRET=<use_existing_secret_or_create_new>"; fi)
 
-# Resource Names
+# Subscription and Resource Group
+AZURE_SUBSCRIPTION_ID=$SUBSCRIPTION_ID
 RESOURCE_GROUP=$RG_NAME
-STORAGE_ACCOUNT_NAME=$(echo $STORAGE_ACCOUNT | cut -d'/' -f9)
-AML_WORKSPACE_NAME=$(echo $AML_WORKSPACE | cut -d'/' -f9)
-DATA_FACTORY_NAME=$(echo $DATA_FACTORY | cut -d'/' -f9)
+LOCATION=$LOCATION
+PROJECT_NAME=$PROJECT_NAME
+ENVIRONMENT=$ENVIRONMENT
 EOF
 
 echo "RBAC setup completed successfully!"
 echo "Service Principal details saved to .env file"
-echo "IMPORTANT: Keep these credentials secure and never commit them to version control!" 
+if [ -z "$SP_SECRET" ]; then
+    echo "WARNING: Using existing service principal. You may need to create a new client secret."
+fi
+echo "IMPORTANT: Keep these credentials secure and never commit them to version control!"
+echo ""
+echo "Next step: Run the deployment script:"
+echo "bash deploy-infrastructure.sh" 
